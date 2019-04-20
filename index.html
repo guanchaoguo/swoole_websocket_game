@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>摇骰子</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0,minimal-ui"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+<meta name="format-detection" content="telephone=no"/>
+<link href="css/bootstrap.css" rel="stylesheet"/>
+<style>
+h1{line-height: 80px;text-align: center;}	
+.btns{margin-top:20px;text-align: center;padding:0 10px;}
+.line-group{min-height: 117px;}
+ready{display:none;background:url(images/tipicon.png) 0 -32px no-repeat;width:16px;height:16px;top: 3px;margin-left:2px;position: relative;}
+point{float: right;font-size:14px;font-weight: bold;}
+.line-group-item{overflow: hidden;}
+.line-group{padding:0 8px;}
+.line-group-item,.line-group-head{padding:8px 0;border-bottom:1px solid #eee;font-size:14px;}
+.line-group-head{font-weight: bold;}
+.line-group-item.right-arrow{padding-right:20px;}
+.line-group-item i{font-style: normal;float:right;font-size:12px;}
+.line-group-item img{height:16px;width:16px;top:-3px;position:relative;display:inline-block;margin-right:4px;}
+</style>
+</head>
+<body>
+	<h1>摇骰子</h1>
+	<div class="heipx"></div>
+	<ul class="line-group">
+		<li class="line-group-head">当前玩家</li>
+	</ul>
+	<div class="btns">
+		<button type="button" id="ready-btn" class="btn btn-success btn-block">准备</button>
+		<button type="button" id="shake-btn" class="btn btn-warning btn-block" style="display:none;">摇啊摇</button>
+	</div>
+	<div id="modal" class="modal fade" tabindex="-1" role="dialog">
+		<div class="modal-dialog" role="document">
+			<div class="modal-content">
+				<div class="modal-header">
+					<button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+					<h4 class="modal-title">游戏结果</h4>
+				</div>
+				<div class="modal-body">
+					<p>Winner is <winner></winner></p>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-default" data-dismiss="modal">关闭</button>
+				</div>
+			</div><!-- /.modal-content -->
+		</div><!-- /.modal-dialog -->
+	</div><!-- /.modal -->
+	
+	<div class="alert alert-warning" style="text-align: center;margin:20px 10px;display: none;">连接已断开，请刷新页面重新开始</div>
+	
+	
+	
+<script src="js/jquery.min.js"></script>
+<script src="js/bootstrap.min.js"></script>
+<script src="js/sprintf.min.js"></script>
+<script>
+var Room = {
+	socket: null,
+	uid: 0,
+	users: [],
+	init: function(){
+		// 创建一个Socket实例
+		this.socket = new WebSocket('ws://www.muzhiqibing.com:50030'); 
+		// 打开Socket 
+		this.socket.onopen = function(event) { 
+			// 监听消息
+			this.socket.onmessage = function(event) {
+				if(event.data.indexOf('server:') === 0){return;}//不知道为什么，发送到服务器的时候，也会在这里收到事件
+				console.log('Message: ', event.data);
+				var data = $.parseJSON(event.data);
+				switch(data.action){
+					case 'list_user':
+						this.list_user(data.data);
+						break;
+					case 'login':
+						this.login(data.data);
+						break;
+					case 'logout':
+						this.logout(data.uid);
+						break;
+					case 'ready':
+						this.ready(data.uid);
+						break;
+					case 'begin':
+						this.begin(data.uid);
+						break;
+					case 'userinfo':
+						this.userinfo(data.data);
+						break;
+					case 'do':
+						this.ondo(data.uid, data.data);
+						break;
+					case 'finish':
+						this.onfinish(data.uid);
+						break;
+				}
+			}.bind(this); 
+
+			  // 监听Socket的关闭
+			this.socket.onclose = function(event) {
+				$('.alert').show();
+				console.log('Client notified socket has closed', event);
+			};
+		}.bind(this);
+			
+		
+		this.bind();
+	},
+	onfinish: function(uid){
+		$('winner').text(this.users[uid].nickname);
+		this.restart();
+		setTimeout(function(){$('#modal').modal()}, 2000);
+		$('.btns').hide();
+	},
+	ondo: function(uid, point){
+		$(sprintf('#uid-%d', uid)).find('point').css({'opacity': 0}).text(point).animate({'opacity': 1}, {during: 1500, step: function(num){
+			$(this).css('transform', sprintf('scale(%f)', 6*(1-num) + 1))
+		}});
+		if(uid == this.uid){
+			$('#shake-btn').css('display', 'none');
+		}
+	},
+	ready: function(uid){
+		$(sprintf('#uid-%d', uid)).find('ready').css('display', 'inline-block');
+		if(uid == this.uid){
+			$('#ready-btn').css('display', 'none');
+		}
+		$('point').text('');
+	},
+	list_user: function(users){
+		$('.user').remove();
+		$.each(users, function(i, e){
+			this.login(e);
+		}.bind(this))
+	},
+	userinfo: function(user){
+		this.uid = user.uid;
+	},
+	login: function(e){
+		var $li = $('<li class="line-group-item user" id=""><img src=""> <name></name><ready></ready><point></point>');
+		$li.find('img').attr('src', e.head);
+		$li.find('name').text(e.nickname);
+		$li.attr('id', sprintf('uid-%d', e.uid));
+		$('.line-group-head').after($li);
+		this.users[e.uid] = e;
+	},
+	begin: function(){
+		$('#shake-btn').css('display', 'block');
+	},
+	logout: function(uid){
+		$(sprintf('#uid-%d', uid)).remove();
+	},
+	bind: function(){
+		$('#ready-btn').click(function(){
+			this.socket.send(JSON.stringify({
+				action: 'ready',
+			}))
+		}.bind(this));
+		
+		$('#shake-btn').click(function(){
+			this.socket.send(JSON.stringify({
+				action: 'do',
+			}))
+		}.bind(this));
+		
+		$('#modal').on('hide.bs.modal', function(){
+			$('.btns').show();
+		}.bind(this))
+	},
+	restart: function(){
+		$('#ready-btn').css('display', 'block');
+		$('#shake-btn').css('display', 'none');
+		$('ready').hide();
+	}
+};	
+Room.init();
+</script>	
+</body>
+</html>
